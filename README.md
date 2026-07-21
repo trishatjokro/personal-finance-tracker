@@ -122,6 +122,25 @@ on the public internet so you can reach it from a phone, note that the login is
 the only thing between the internet and your complete financial history — so use
 a long passphrase, put it behind HTTPS, and set `NODE_ENV=production`.
 
+## Launching it without the terminal
+
+**macOS app** — run `./scripts/make-app.sh` and drag `build/Girl Math.app` to your
+Applications folder or Dock. Double-click it: the server starts in the background
+and your browser opens. Launching it again when it's already running just reopens
+the tab.
+
+The app is a launcher, not the whole program — it points at this project folder,
+so re-run `make-app.sh` if you move the folder.
+
+**To stop the server**, run:
+
+```bash
+pkill -f "node src/server.js"
+```
+
+It uses about 40MB of memory while idle, so leaving it running is fine. Problems
+launching are logged to `~/Library/Logs/GirlMath.log`.
+
 ## Requirements
 
 Node 22 or newer. Nothing else — no database server, no build step, and no
