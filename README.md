@@ -1,4 +1,4 @@
-# Ledger
+# Girl Math
 
 A self-hosted personal finance tracker you run on your own computer. Your
 transactions live in a single file on your machine — no account to create, no
@@ -24,7 +24,7 @@ They're also a lot of app. Firefly III wants a database server and asks you to
 learn source and destination accounts before you can log a coffee. Actual is
 built around envelope budgeting, which is a whole methodology to adopt.
 
-Ledger is for the case where you just want to see where your money went. Type in
+Girl Math is for the case where you just want to see where your money went. Type in
 what you spent, or drop in your bank's CSV. One file, one command, no
 methodology to buy into.
 
