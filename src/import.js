@@ -72,6 +72,10 @@ export function parseAmountToCents(raw) {
   s = s.replace(/\s*(CR|DR)\s*$/i, "");
   s = s.replace(/[^\d.,+-]/g, ""); // drop currency symbols and spaces
 
+  // Without this, text with no digits strips to "" and Number("") is 0 —
+  // an unreadable cell would import as a real zero-value transaction.
+  if (!/\d/.test(s)) return null;
+
   if (s.startsWith("-")) {
     negative = true;
     s = s.slice(1);
