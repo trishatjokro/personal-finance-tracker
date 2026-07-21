@@ -1,4 +1,4 @@
-# Girl Math
+# Girl Math 🎀
 
 A self-hosted personal finance tracker you run on your own computer. Your
 transactions live in a single file on your machine — no account to create, no
@@ -11,7 +11,8 @@ npm install
 npm start
 ```
 
-Then open **http://localhost:3000** and choose a passphrase. That's the whole setup.
+Then open **http://localhost:3000** and create a username and password. That's the
+whole setup.
 
 ---
 
@@ -41,7 +42,24 @@ two above — they do it properly.
 - **Filter and sort** by month, category, spending vs income, or free text
 - **See the shape of a month** — spending by category, running balance, and how
   this month compares to the last
+- **Export a month as a PDF** — real selectable text, not a screenshot
+- **Several logins on one computer**, each with completely separate books
 - **Light and dark**, both designed rather than one flipped into the other
+
+## Several people, one copy
+
+Anyone can create an account from the sign-in screen, and each person gets their
+own accounts, transactions, and categories. Nobody can see anyone else's — every
+query is scoped by user, and asking for a transaction that isn't yours returns
+nothing rather than someone else's data.
+
+This is separate books on shared hardware, not a shared household budget. Two
+people tracking one joint account would each need to import it themselves.
+
+Worth being clear about the threat model: this protects your partner or roommate
+from casually opening your ledger. It does **not** protect the database file
+itself — anyone with access to the folder can read `data/ledger.db` directly. If
+that matters, use macOS FileVault or an encrypted volume.
 
 ## Your data
 
@@ -53,8 +71,8 @@ folder. That file is your data.
 - **Read it** with any SQLite tool if you ever want out. Nothing is proprietary.
 - `data/` is gitignored, so your finances never get committed by accident.
 
-The passphrase is hashed with scrypt and never stored. **There is no reset** —
-if you forget it, the data is unreachable. Write it down somewhere real.
+Passwords are hashed with scrypt and never stored. **There is no reset** — if you
+forget yours, that account's data is unreachable. Write it down somewhere real.
 
 ## Importing from your bank
 
