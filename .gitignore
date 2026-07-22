@@ -1,5 +1,6 @@
 node_modules/
 data/
+build/
 *.db
 *.db-wal
 *.db-shm
