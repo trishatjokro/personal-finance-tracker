@@ -12,12 +12,13 @@ import {
   updateTransaction,
 } from "./db.js";
 import {
+  authenticate,
   createSession,
   destroySession,
-  isConfigured,
-  isValidSession,
-  setPassphrase,
-  verifyPassphrase,
+  hasAnyUsers,
+  registerUser,
+  sessionUser,
+  validateCredentials,
 } from "./auth.js";
 import { parseBankCsv } from "./import.js";
 
@@ -27,50 +28,52 @@ const PORT = Number(process.env.PORT ?? 3000);
 
 /* ---------- auth gate ---------- */
 
-app.use("/api/*", async (c, next) => {
-  const open = ["/api/status", "/api/setup", "/api/login"];
-  if (open.includes(c.req.path)) return next();
+const OPEN_ROUTES = ["/api/status", "/api/signup", "/api/login"];
 
-  if (!isValidSession(getCookie(c, COOKIE))) {
-    return c.json({ error: "Not signed in." }, 401);
-  }
+app.use("/api/*", async (c, next) => {
+  if (OPEN_ROUTES.includes(c.req.path)) return next();
+
+  const user = sessionUser(getCookie(c, COOKIE));
+  if (!user) return c.json({ error: "Not signed in." }, 401);
+
+  // Everything downstream reads the user from here — never from the request
+  // body, which the client controls.
+  c.set("user", user);
   return next();
 });
 
 /* ---------- session ---------- */
 
-app.get("/api/status", (c) =>
-  c.json({
-    configured: isConfigured(),
-    authenticated: isValidSession(getCookie(c, COOKIE)),
-  })
-);
+app.get("/api/status", (c) => {
+  const user = sessionUser(getCookie(c, COOKIE));
+  return c.json({
+    hasUsers: hasAnyUsers(),
+    authenticated: Boolean(user),
+    username: user?.username ?? null,
+  });
+});
 
-app.post("/api/setup", async (c) => {
-  if (isConfigured()) {
-    return c.json({ error: "This copy already has a passphrase." }, 400);
-  }
+app.post("/api/signup", async (c) => {
+  const { username, password } = await c.req.json();
 
-  const { passphrase } = await c.req.json();
-  if (typeof passphrase !== "string" || passphrase.length < 8) {
-    return c.json({ error: "Use at least 8 characters." }, 400);
-  }
+  const problem = validateCredentials(username, password);
+  if (problem) return c.json({ error: problem }, 400);
 
-  setPassphrase(passphrase);
-  issueSession(c);
-  return c.json({ ok: true });
+  const result = registerUser(username, password);
+  if (result.error) return c.json({ error: result.error }, 400);
+
+  issueSession(c, result.userId);
+  return c.json({ ok: true, username: username.trim() }, 201);
 });
 
 app.post("/api/login", async (c) => {
-  const { passphrase } = await c.req.json();
+  const { username, password } = await c.req.json();
 
-  if (!isConfigured()) return c.json({ error: "No passphrase set yet." }, 400);
-  if (!verifyPassphrase(passphrase ?? "")) {
-    return c.json({ error: "That passphrase doesn't match." }, 401);
-  }
+  const user = authenticate(username, password);
+  if (!user) return c.json({ error: "Wrong username or password." }, 401);
 
-  issueSession(c);
-  return c.json({ ok: true });
+  issueSession(c, user.id);
+  return c.json({ ok: true, username: user.username });
 });
 
 app.post("/api/logout", (c) => {
@@ -79,8 +82,8 @@ app.post("/api/logout", (c) => {
   return c.json({ ok: true });
 });
 
-function issueSession(c) {
-  setCookie(c, COOKIE, createSession(), {
+function issueSession(c, userId) {
+  setCookie(c, COOKIE, createSession(userId), {
     path: "/",
     httpOnly: true,
     sameSite: "Lax",
@@ -91,26 +94,27 @@ function issueSession(c) {
 
 /* ---------- data ---------- */
 
-app.get("/api/accounts", (c) => c.json(listAccounts()));
+app.get("/api/accounts", (c) => c.json(listAccounts(c.get("user").id)));
 
 app.patch("/api/accounts/:id", async (c) => {
   const body = await c.req.json();
-  updateAccount(Number(c.req.param("id")), {
+  updateAccount(c.get("user").id, Number(c.req.param("id")), {
     name: String(body.name ?? "Checking"),
     opening_balance_cents: Math.round(Number(body.opening_balance_cents ?? 0)),
   });
   return c.json({ ok: true });
 });
 
-app.get("/api/transactions", (c) => c.json(listTransactions()));
+app.get("/api/transactions", (c) => c.json(listTransactions(c.get("user").id)));
 
 app.post("/api/transactions", async (c) => {
   const body = await c.req.json();
   const problem = validate(body);
   if (problem) return c.json({ error: problem }, 400);
 
-  const id = addTransaction({
-    account_id: Number(body.account_id ?? listAccounts()[0].id),
+  const userId = c.get("user").id;
+  const id = addTransaction(userId, {
+    account_id: Number(body.account_id ?? listAccounts(userId)[0]?.id),
     date: body.date,
     payee: String(body.payee).trim(),
     memo: String(body.memo ?? "").trim(),
@@ -127,7 +131,7 @@ app.patch("/api/transactions/:id", async (c) => {
   const problem = validate(body);
   if (problem) return c.json({ error: problem }, 400);
 
-  updateTransaction(Number(c.req.param("id")), {
+  updateTransaction(c.get("user").id, Number(c.req.param("id")), {
     date: body.date,
     payee: String(body.payee).trim(),
     memo: String(body.memo ?? "").trim(),
@@ -139,7 +143,7 @@ app.patch("/api/transactions/:id", async (c) => {
 });
 
 app.delete("/api/transactions/:id", (c) => {
-  deleteTransaction(Number(c.req.param("id")));
+  deleteTransaction(c.get("user").id, Number(c.req.param("id")));
   return c.json({ ok: true });
 });
 
@@ -167,13 +171,14 @@ app.post("/api/import", async (c) => {
     return c.json({ error: err.message }, 400);
   }
 
-  const accountId = listAccounts()[0].id;
+  const userId = c.get("user").id;
+  const accountId = listAccounts(userId)[0]?.id;
   let added = 0;
   let duplicates = 0;
 
   for (const row of parsed.rows) {
     try {
-      addTransaction({ ...row, account_id: accountId });
+      addTransaction(userId, { ...row, account_id: accountId });
       added++;
     } catch (err) {
       // The unique index on (account_id, dedupe_key) is what makes re-importing
@@ -191,5 +196,5 @@ app.post("/api/import", async (c) => {
 app.use("/*", serveStatic({ root: "./public" }));
 
 serve({ fetch: app.fetch, port: PORT }, () => {
-  console.log(`\n  Ledger is running — open http://localhost:${PORT}\n`);
+  console.log(`\n  Girl Math is running — open http://localhost:${PORT}\n`);
 });
