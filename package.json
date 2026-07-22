@@ -1,7 +1,7 @@
 {
   "name": "personal-finance-tracker",
   "version": "1.0.0",
-  "description": "A self-hosted personal finance tracker built for multiple currencies.",
+  "description": "Girl Math — a self-hosted personal finance tracker.",
   "main": "src/server.js",
   "scripts": {
     "test": "node --test",
