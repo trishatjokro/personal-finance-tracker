@@ -1,61 +1,88 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { db, getSetting, setSetting } from "./db.js";
+import { db, findUser, findUserById, insertUser, userCount } from "./db.js";
 
 /**
- * Single-user auth, deliberately hand-rolled.
+ * Username + password auth for a self-hosted app that may have a few people
+ * on it — you and a partner, say, each with their own separate books.
  *
- * This app is one person's copy of their own data on their own machine, so the
- * whole surface is: hash a passphrase, hand out a session token, check it.
- * Everything uses node:crypto — no dependency, nothing to keep patched, and
- * small enough to read end to end.
+ * Hand-rolled on node:crypto rather than an auth framework: the whole surface
+ * is hash, compare, hand out a token, look the token up. That is small enough
+ * to read in one sitting, which is worth more here than a dependency.
  */
 
 const KEY_LEN = 64;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-export function isConfigured() {
-  return getSetting("passphrase_hash") !== null;
+const USERNAME_RE = /^[a-zA-Z0-9._-]{2,32}$/;
+
+export function hasAnyUsers() {
+  return userCount() > 0;
 }
 
-export function setPassphrase(passphrase) {
+export function validateCredentials(username, password) {
+  if (typeof username !== "string" || !USERNAME_RE.test(username.trim())) {
+    return "Usernames can be 2–32 letters, numbers, dots, dashes or underscores.";
+  }
+  if (typeof password !== "string" || password.length < 8) {
+    return "Use a password of at least 8 characters.";
+  }
+  return null;
+}
+
+export function registerUser(username, password) {
+  const name = username.trim();
+
+  if (findUser(name)) {
+    return { error: "That username is taken." };
+  }
+
   const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(passphrase, salt, KEY_LEN).toString("hex");
-  setSetting("passphrase_salt", salt);
-  setSetting("passphrase_hash", hash);
+  const hash = scryptSync(password, salt, KEY_LEN).toString("hex");
+
+  return { userId: insertUser({ username: name, salt, hash }) };
 }
 
-export function verifyPassphrase(passphrase) {
-  const salt = getSetting("passphrase_salt");
-  const expected = getSetting("passphrase_hash");
-  if (!salt || !expected) return false;
+export function authenticate(username, password) {
+  const user = findUser(String(username ?? "").trim());
 
-  const actual = scryptSync(passphrase, salt, KEY_LEN).toString("hex");
+  // Hash regardless of whether the user exists, so a missing username and a
+  // wrong password take the same amount of time to reject.
+  const salt = user?.salt ?? "0".repeat(32);
+  const attempt = scryptSync(String(password ?? ""), salt, KEY_LEN);
 
-  // Constant-time compare so a wrong guess can't be timed against a right one.
-  const a = Buffer.from(actual, "hex");
-  const b = Buffer.from(expected, "hex");
-  return a.length === b.length && timingSafeEqual(a, b);
+  if (!user) return null;
+
+  const expected = Buffer.from(user.hash, "hex");
+  if (attempt.length !== expected.length || !timingSafeEqual(attempt, expected)) {
+    return null;
+  }
+
+  return { id: user.id, username: user.username };
 }
 
-export function createSession() {
+export function createSession(userId) {
   const token = randomBytes(32).toString("hex");
-  db.prepare("INSERT INTO sessions (token, created_at) VALUES (?, ?)").run(
+  db.prepare("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)").run(
     token,
+    userId,
     new Date().toISOString()
   );
   return token;
 }
 
-export function isValidSession(token) {
-  if (!token) return false;
-  const row = db.prepare("SELECT created_at FROM sessions WHERE token = ?").get(token);
-  if (!row) return false;
+/** Returns { id, username } for a live session, or null. */
+export function sessionUser(token) {
+  if (!token) return null;
+
+  const row = db.prepare("SELECT user_id, created_at FROM sessions WHERE token = ?").get(token);
+  if (!row) return null;
 
   if (Date.now() - new Date(row.created_at).getTime() > SESSION_TTL_MS) {
     destroySession(token);
-    return false;
+    return null;
   }
-  return true;
+
+  return findUserById(row.user_id);
 }
 
 export function destroySession(token) {
