@@ -2259,10 +2259,30 @@ function openEntry(txn = null) {
   $("f-category").value = txn && txn.category !== "Uncategorized" ? txn.category : "";
   $("f-memo").value = txn ? txn.memo : "";
 
+  // Account picker: default to the account being viewed, or the transaction's
+  // own account when editing.
+  buildAccountPicker(txn ? txn.account_id : state.accountId ?? state.accounts[0]?.id);
+  $("f-transfer").checked = txn ? Boolean(txn.is_transfer) : false;
+
   setDirection(txn ? (txn.amount_cents > 0 ? "in" : "out") : "out");
 
   $("entry").scrollIntoView({ block: "nearest", behavior: "smooth" });
   $("f-payee").focus();
+}
+
+function buildAccountPicker(selectedId) {
+  const sel = $("f-account");
+  sel.textContent = "";
+  for (const a of state.accounts) {
+    const opt = document.createElement("option");
+    opt.value = String(a.id);
+    opt.textContent = a.name;
+    sel.appendChild(opt);
+  }
+  if (selectedId != null) sel.value = String(selectedId);
+
+  // Hide the picker entirely when there's only one account to choose.
+  $("f-account-field").style.display = state.accounts.length > 1 ? "" : "none";
 }
 
 function closeEntry() {
@@ -2402,12 +2422,16 @@ $("entry").addEventListener("submit", async (e) => {
   const signed = state.direction === "in" ? Math.abs(cents) : -Math.abs(cents);
   const editing = state.editingId !== null;
 
+  const accountId = $("f-account").value ? Number($("f-account").value) : state.accounts[0]?.id;
+
   const payload = {
     date: $("f-date").value,
     payee: $("f-payee").value,
     memo: $("f-memo").value,
     category: $("f-category").value.trim() || "Uncategorized",
     amount_cents: signed,
+    account_id: accountId,
+    is_transfer: $("f-transfer").checked,
   };
 
   try {
@@ -2425,6 +2449,7 @@ $("entry").addEventListener("submit", async (e) => {
       // Stay open for the next one — the common case is entering a few at once.
       $("entry").reset();
       $("f-date").value = payload.date;
+      buildAccountPicker(accountId);
       setDirection(state.direction);
       $("f-payee").focus();
     }
@@ -2450,13 +2475,28 @@ $("file-input").addEventListener("change", async (e) => {
   if (!file) return;
 
   try {
+    // A statement belongs to exactly one account. Use the one being viewed;
+    // if that's the combined view, ask which account this file is for.
+    let accountId = state.accountId;
+    if (accountId === null && state.accounts.length > 1) {
+      const menu = state.accounts.map((a, i) => `${i + 1}. ${a.name}`).join("\n");
+      const pick = window.prompt(`Which account is this statement for?\n\n${menu}`, "1");
+      if (pick === null) return;
+      const chosen = state.accounts[Number(pick) - 1];
+      if (!chosen) { toast("That wasn't one of the choices."); return; }
+      accountId = chosen.id;
+    } else if (accountId === null) {
+      accountId = state.accounts[0]?.id;
+    }
+
     const csv = await file.text();
     const result = await api("/api/import", {
       method: "POST",
-      body: JSON.stringify({ csv, dateOrder: "MDY" }),
+      body: JSON.stringify({ csv, dateOrder: "MDY", accountId }),
     });
 
     const bits = [`${result.added} added`];
+    if (result.transfers) bits.push(`${result.transfers} flagged as transfers`);
     if (result.duplicates) bits.push(`${result.duplicates} already there`);
     if (result.skipped) bits.push(`${result.skipped} unreadable`);
     toast(bits.join(" · "));
@@ -2489,13 +2529,16 @@ function buildReport() {
   const key = state.months[state.monthIndex];
   const rows = visible();
 
-  const spent = rows.filter((t) => !isIncome(t)).reduce((s, t) => s + Math.abs(t.amount_cents), 0);
-  const income = rows.filter(isIncome).reduce((s, t) => s + t.amount_cents, 0);
+  // Totals mirror the dashboard: transfers between the user's own accounts
+  // never count as spending or income.
+  const counted = rows.filter(counts);
+  const spent = counted.filter((t) => !isIncome(t)).reduce((s, t) => s + Math.abs(t.amount_cents), 0);
+  const income = counted.filter(isIncome).reduce((s, t) => s + t.amount_cents, 0);
   const net = income - spent;
   const days = daysInMonth(key);
 
   const totals = {};
-  for (const t of rows) {
+  for (const t of counted) {
     if (isIncome(t)) continue;
     totals[t.category] = (totals[t.category] ?? 0) + Math.abs(t.amount_cents);
   }
@@ -2512,7 +2555,10 @@ function buildReport() {
   if (state.type === "income") active.push("income only");
   if (state.query.trim()) active.push(`matching “${state.query.trim()}”`);
 
-  const account = state.accounts[0];
+  const account =
+    state.accountId === null
+      ? { name: state.accounts.length > 1 ? "All accounts" : state.accounts[0]?.name ?? "", currency: "USD" }
+      : state.accounts.find((a) => a.id === state.accountId) ?? state.accounts[0];
 
   $("report").innerHTML = `
     <div class="rp-head">
@@ -2616,18 +2662,100 @@ window.addEventListener("beforeprint", buildReport);
 
 /* ---------- settings ---------- */
 
-$("settings-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const cents = dollarsToCents($("s-open").value || "0");
-  if (cents === null) { toast("Enter an amount like 1500.00"); return; }
+const KINDS = [
+  ["checking", "Checking"],
+  ["savings", "Savings"],
+  ["credit", "Credit card"],
+];
 
-  await api(`/api/accounts/${state.accounts[0].id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ name: $("s-name").value.trim() || "Checking", opening_balance_cents: cents }),
-  });
+function buildAccountManager() {
+  const wrap = $("account-manager");
+  wrap.textContent = "";
 
-  toast("Saved");
-  await loadData();
+  for (const a of state.accounts) {
+    const item = document.createElement("form");
+    item.className = "acct-item";
+
+    const kindOptions = KINDS.map(
+      ([v, label]) => `<option value="${v}"${a.kind === v ? " selected" : ""}>${label}</option>`
+    ).join("");
+
+    item.innerHTML = `
+      <div class="acct-fields">
+        <div class="field">
+          <label class="field-label">Name</label>
+          <input class="field-input acct-name" type="text" value="${escapeHtml(a.name)}" />
+        </div>
+        <div class="field">
+          <label class="field-label">Type</label>
+          <select class="field-select acct-kind">${kindOptions}</select>
+        </div>
+        <div class="field">
+          <label class="field-label">Starting balance</label>
+          <input class="field-input acct-open" type="text" inputmode="decimal"
+                 value="${centsToDollars(a.opening_balance_cents)}" />
+        </div>
+      </div>
+      <div class="acct-item-actions">
+        <button class="btn-small" type="submit">Save</button>
+        ${state.accounts.length > 1 ? '<button class="acct-del" type="button">Delete</button>' : ""}
+      </div>`;
+
+    item.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const cents = dollarsToCents(item.querySelector(".acct-open").value || "0");
+      if (cents === null) { toast("Enter a balance like 1500.00"); return; }
+
+      await api(`/api/accounts/${a.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: item.querySelector(".acct-name").value.trim() || "Account",
+          kind: item.querySelector(".acct-kind").value,
+          opening_balance_cents: cents,
+        }),
+      });
+      toast("Saved");
+      await loadData();
+    });
+
+    const del = item.querySelector(".acct-del");
+    if (del) {
+      del.addEventListener("click", async () => {
+        const n = state.txns.filter((t) => t.account_id === a.id).length;
+        const warn = n
+          ? `Delete "${a.name}" and its ${n} transaction${n === 1 ? "" : "s"}? This can't be undone.`
+          : `Delete "${a.name}"?`;
+        if (!confirm(warn)) return;
+
+        try {
+          await api(`/api/accounts/${a.id}`, { method: "DELETE" });
+          toast("Account deleted");
+          await loadData();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+    }
+
+    wrap.appendChild(item);
+  }
+}
+
+$("add-account").addEventListener("click", async () => {
+  const name = window.prompt("Name the new account (e.g. Savings, Credit Card):", "");
+  if (name === null) return;
+  if (!name.trim()) return;
+
+  try {
+    await api("/api/accounts", {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim(), kind: "checking", opening_balance_cents: 0 }),
+    });
+    toast("Account added");
+    await loadData();
+  } catch (err) {
+    toast(err.message);
+  }
 });
 
 /* ---------- filters, sort, months ---------- */
