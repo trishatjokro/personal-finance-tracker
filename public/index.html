@@ -721,6 +721,94 @@
   .cat-rename:hover { color: var(--accent); }
   .cat-rename:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+  .acct-chip {
+    display: inline-block;
+    margin-left: 0.45rem;
+    padding: 0.02rem 0.4rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+  }
+
+  .transfer-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: var(--step--1);
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  td.num.is-transfer { color: var(--muted); }
+
+  .row-xfer {
+    appearance: none;
+    background: none;
+    border: 0;
+    color: var(--muted);
+    font-size: var(--step-0);
+    line-height: 1;
+    padding: 0.15rem 0.3rem;
+    cursor: pointer;
+    opacity: 0;
+    border-radius: 6px;
+    transition: opacity 120ms, color 120ms, background 120ms;
+  }
+
+  tr:hover .row-xfer, .row-xfer:focus-visible, .row-xfer.on { opacity: 1; }
+  .row-xfer:hover { color: var(--accent); }
+  .row-xfer.on { color: var(--accent); background: var(--accent-soft); }
+  .row-xfer:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .transfer-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
+    font-size: var(--step--1);
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  .transfer-check input { margin-top: 0.15rem; accent-color: var(--accent); flex: none; }
+
+  /* account manager */
+  .acct-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.4rem 0.6rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: end;
+  }
+
+  .acct-item .field { margin-bottom: 0; }
+  .acct-fields { display: flex; flex-wrap: wrap; gap: 0.5rem; grid-column: 1 / -1; }
+  .acct-fields .field { flex: 1 1 6rem; }
+
+  .acct-item-actions { display: flex; gap: 0.4rem; grid-column: 1 / -1; }
+
+  .acct-del {
+    appearance: none;
+    background: none;
+    border: 0;
+    font: inherit;
+    font-size: var(--step--1);
+    color: var(--muted);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    padding: 0.2rem;
+  }
+
+  .acct-del:hover { color: var(--danger); }
+  .acct-del:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #add-account { margin-top: 0.85rem; }
+
   .empty {
     padding: 2.25rem 0;
     text-align: center;
@@ -1356,18 +1444,9 @@
         <p class="chart-caption" id="chart-caption">Running balance</p>
 
         <details class="settings">
-          <summary>Account settings</summary>
-          <form class="settings-body" id="settings-form">
-            <div class="field">
-              <label class="field-label" for="s-name">Account name</label>
-              <input class="field-input" id="s-name" type="text" />
-            </div>
-            <div class="field">
-              <label class="field-label" for="s-open">Starting balance</label>
-              <input class="field-input" id="s-open" type="text" inputmode="decimal" placeholder="0.00" />
-            </div>
-            <button class="btn-small" type="submit">Save</button>
-          </form>
+          <summary>Manage accounts</summary>
+          <div id="account-manager"></div>
+          <button class="btn-small btn-ghost" id="add-account" type="button">+ Add an account</button>
         </details>
       </div>
     </aside>
