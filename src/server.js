@@ -5,10 +5,13 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 
 import {
   addTransaction,
+  createAccount,
+  deleteAccount,
   deleteTransaction,
   listAccounts,
   listTransactions,
   renameCategory,
+  setTransferFlag,
   updateAccount,
   updateTransaction,
 } from "./db.js";
@@ -95,14 +98,37 @@ function issueSession(c, userId) {
 
 /* ---------- data ---------- */
 
+const ACCOUNT_KINDS = ["checking", "savings", "credit"];
+const cleanKind = (k) => (ACCOUNT_KINDS.includes(k) ? k : "checking");
+
 app.get("/api/accounts", (c) => c.json(listAccounts(c.get("user").id)));
+
+app.post("/api/accounts", async (c) => {
+  const body = await c.req.json();
+  const name = String(body.name ?? "").trim();
+  if (!name) return c.json({ error: "Name the account." }, 400);
+
+  const id = createAccount(c.get("user").id, {
+    name,
+    kind: cleanKind(body.kind),
+    opening_balance_cents: Math.round(Number(body.opening_balance_cents ?? 0)),
+  });
+  return c.json({ id }, 201);
+});
 
 app.patch("/api/accounts/:id", async (c) => {
   const body = await c.req.json();
   updateAccount(c.get("user").id, Number(c.req.param("id")), {
     name: String(body.name ?? "Checking"),
+    kind: cleanKind(body.kind),
     opening_balance_cents: Math.round(Number(body.opening_balance_cents ?? 0)),
   });
+  return c.json({ ok: true });
+});
+
+app.delete("/api/accounts/:id", (c) => {
+  const result = deleteAccount(c.get("user").id, Number(c.req.param("id")));
+  if (result.error) return c.json(result, 400);
   return c.json({ ok: true });
 });
 
