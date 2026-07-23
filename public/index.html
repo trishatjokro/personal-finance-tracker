@@ -1923,9 +1923,10 @@ function visible() {
   const key = state.months[state.monthIndex];
   const q = state.query.trim().toLowerCase();
 
-  // A search spans every month — otherwise "when did I last pay the dentist?"
-  // is unanswerable without clicking back through the year.
-  const pool = q ? state.txns : monthTxns(key);
+  // A search spans every month (but still respects the account filter) —
+  // otherwise "when did I last pay the dentist?" means clicking back through
+  // the whole year.
+  const pool = q ? accountTxns() : monthTxns(key);
 
   const list = pool.filter((t) => {
     if (state.type === "income" && !isIncome(t)) return false;
@@ -1958,6 +1959,14 @@ function renderRows() {
     const td2 = document.createElement("td");
     td2.className = "payee";
     td2.textContent = t.payee;
+
+    // In the combined view, name the account each row belongs to.
+    if (state.accountId === null && state.accounts.length > 1) {
+      const acct = document.createElement("span");
+      acct.className = "acct-chip";
+      acct.textContent = t.account_name;
+      td2.appendChild(acct);
+    }
     if (t.memo) {
       const memo = document.createElement("span");
       memo.className = "memo";
