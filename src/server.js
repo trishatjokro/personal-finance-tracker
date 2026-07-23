@@ -147,6 +147,7 @@ app.post("/api/transactions", async (c) => {
     memo: String(body.memo ?? "").trim(),
     category: String(body.category ?? "Uncategorized").trim() || "Uncategorized",
     amount_cents: Math.round(Number(body.amount_cents)),
+    is_transfer: Boolean(body.is_transfer),
     source: "manual",
   });
 
@@ -159,13 +160,21 @@ app.patch("/api/transactions/:id", async (c) => {
   if (problem) return c.json({ error: problem }, 400);
 
   updateTransaction(c.get("user").id, Number(c.req.param("id")), {
+    account_id: body.account_id != null ? Number(body.account_id) : null,
     date: body.date,
     payee: String(body.payee).trim(),
     memo: String(body.memo ?? "").trim(),
     category: String(body.category ?? "Uncategorized").trim() || "Uncategorized",
     amount_cents: Math.round(Number(body.amount_cents)),
+    is_transfer: Boolean(body.is_transfer),
   });
 
+  return c.json({ ok: true });
+});
+
+app.post("/api/transactions/:id/transfer", async (c) => {
+  const { is_transfer } = await c.req.json();
+  setTransferFlag(c.get("user").id, Number(c.req.param("id")), Boolean(is_transfer));
   return c.json({ ok: true });
 });
 
@@ -201,7 +210,8 @@ function validate(body) {
 /* ---------- import ---------- */
 
 app.post("/api/import", async (c) => {
-  const { csv, dateOrder } = await c.req.json();
+  const body = await c.req.json();
+  const { csv, dateOrder } = body;
 
   if (typeof csv !== "string" || !csv.trim()) {
     return c.json({ error: "No file contents received." }, 400);
@@ -215,14 +225,22 @@ app.post("/api/import", async (c) => {
   }
 
   const userId = c.get("user").id;
-  const accountId = listAccounts(userId)[0]?.id;
+  const accounts = listAccounts(userId);
+
+  // Import into the chosen account, falling back to the first if none/an
+  // invalid id was given.
+  const chosen = accounts.find((a) => a.id === Number(body.accountId));
+  const accountId = chosen ? chosen.id : accounts[0]?.id;
+
   let added = 0;
   let duplicates = 0;
+  let transfers = 0;
 
   for (const row of parsed.rows) {
     try {
       addTransaction(userId, { ...row, account_id: accountId });
       added++;
+      if (row.is_transfer) transfers++;
     } catch (err) {
       // The unique index on (account_id, dedupe_key) is what makes re-importing
       // the same file safe — a repeat row is rejected here rather than doubled up.
