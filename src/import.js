@@ -166,6 +166,25 @@ function dedupeKey(date, cents, payee, occurrence) {
 }
 
 /**
+ * Very conservative guess at whether a row is money moving between the user's
+ * own accounts rather than real spending — a credit-card payment or a
+ * savings transfer. Only fires on unambiguous BofA descriptors; anything
+ * marked here stays fully editable, so a false positive is one click to undo.
+ */
+const TRANSFER_PATTERNS = [
+  /online banking transfer/i,
+  /\btransfer\s+(to|from)\b/i,
+  /crdcard|cred(it)?\s*card\s*(bill|pmt|payment)/i,
+  /payment\s*-?\s*thank you/i,
+  /\bbank of america credit card\b/i,
+  /\bpymt\b/i,
+];
+
+export function looksLikeTransfer(payee) {
+  return TRANSFER_PATTERNS.some((re) => re.test(payee));
+}
+
+/**
  * Parse a bank CSV into transaction rows. Returns { rows, skipped, headers }.
  * Nothing is written here — the caller decides what to persist.
  */
@@ -227,6 +246,7 @@ export function parseBankCsv(text, { dateOrder = "MDY" } = {}) {
       amount_cents: cents,
       category: "Uncategorized",
       source: "import",
+      is_transfer: looksLikeTransfer(payee),
       dedupe_key: dedupeKey(date, cents, payee, occurrence),
     });
   }
