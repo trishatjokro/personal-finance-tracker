@@ -171,10 +171,33 @@ export function listAccounts(userId) {
   return db.prepare("SELECT * FROM accounts WHERE user_id = ? ORDER BY id").all(userId);
 }
 
-export function updateAccount(userId, id, { name, opening_balance_cents }) {
+export function createAccount(userId, { name, kind, opening_balance_cents }) {
+  const info = db
+    .prepare(
+      "INSERT INTO accounts (name, kind, currency, opening_balance_cents, user_id) VALUES (?, ?, 'USD', ?, ?)"
+    )
+    .run(name, kind ?? "checking", opening_balance_cents ?? 0, userId);
+  return Number(info.lastInsertRowid);
+}
+
+export function updateAccount(userId, id, { name, kind, opening_balance_cents }) {
   db.prepare(
-    "UPDATE accounts SET name = ?, opening_balance_cents = ? WHERE id = ? AND user_id = ?"
-  ).run(name, opening_balance_cents, id, userId);
+    "UPDATE accounts SET name = ?, kind = ?, opening_balance_cents = ? WHERE id = ? AND user_id = ?"
+  ).run(name, kind ?? "checking", opening_balance_cents, id, userId);
+}
+
+/** Refuses to delete the last account, so a user is never left with none. */
+export function deleteAccount(userId, id) {
+  const remaining = db
+    .prepare("SELECT COUNT(*) AS n FROM accounts WHERE user_id = ?")
+    .get(userId).n;
+
+  if (remaining <= 1) return { error: "You need at least one account." };
+
+  const info = db
+    .prepare("DELETE FROM accounts WHERE id = ? AND user_id = ?")
+    .run(id, userId);
+  return { deleted: info.changes };
 }
 
 /* ---------- transactions ---------- */
@@ -183,7 +206,8 @@ export function listTransactions(userId) {
   return db
     .prepare(
       `SELECT t.id, t.account_id, t.date, t.payee, t.memo, t.category,
-              t.amount_cents, t.source
+              t.amount_cents, t.source, t.is_transfer,
+              a.name AS account_name, a.kind AS account_kind
          FROM transactions t
          JOIN accounts a ON a.id = t.account_id
         WHERE a.user_id = ?
@@ -204,8 +228,8 @@ export function addTransaction(userId, txn) {
   const info = db
     .prepare(
       `INSERT INTO transactions
-         (account_id, date, payee, memo, category, amount_cents, source, dedupe_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (account_id, date, payee, memo, category, amount_cents, source, dedupe_key, is_transfer, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       account.id,
@@ -216,6 +240,7 @@ export function addTransaction(userId, txn) {
       txn.amount_cents,
       txn.source ?? "manual",
       txn.dedupe_key ?? null,
+      txn.is_transfer ? 1 : 0,
       new Date().toISOString()
     );
 
@@ -223,12 +248,39 @@ export function addTransaction(userId, txn) {
 }
 
 export function updateTransaction(userId, id, fields) {
+  // account_id is validated against the user before it's written, so an edit
+  // can move a transaction between the user's own accounts but nowhere else.
+  const account = db
+    .prepare("SELECT id FROM accounts WHERE user_id = ? AND id = ?")
+    .get(userId, fields.account_id);
+
+  const setAccount = account ? ", account_id = " + account.id : "";
+
   db.prepare(
     `UPDATE transactions
-        SET date = ?, payee = ?, memo = ?, category = ?, amount_cents = ?
+        SET date = ?, payee = ?, memo = ?, category = ?, amount_cents = ?, is_transfer = ?${setAccount}
       WHERE id = ?
         AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`
-  ).run(fields.date, fields.payee, fields.memo ?? "", fields.category, fields.amount_cents, id, userId);
+  ).run(
+    fields.date,
+    fields.payee,
+    fields.memo ?? "",
+    fields.category,
+    fields.amount_cents,
+    fields.is_transfer ? 1 : 0,
+    id,
+    userId
+  );
+}
+
+/** Toggle just the transfer flag — used by the quick inline control. */
+export function setTransferFlag(userId, id, isTransfer) {
+  db.prepare(
+    `UPDATE transactions
+        SET is_transfer = ?
+      WHERE id = ?
+        AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`
+  ).run(isTransfer ? 1 : 0, id, userId);
 }
 
 /**
