@@ -2063,6 +2063,19 @@ async function removeTxn(t) {
   await loadData();
 }
 
+async function toggleTransfer(t) {
+  try {
+    await api(`/api/transactions/${t.id}/transfer`, {
+      method: "POST",
+      body: JSON.stringify({ is_transfer: !t.is_transfer }),
+    });
+    toast(t.is_transfer ? "Counted as spending" : "Marked as transfer");
+    await loadData();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 /* ---------- categories ---------- */
 
 function buildCategoryControls() {
