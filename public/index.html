@@ -1774,10 +1774,17 @@ function renderChart(key) {
 
   const W = 320, H = 130, padL = 6, padR = 6, padT = 8, padB = 18;
   const days = daysInMonth(key);
-  const opening = state.accounts[0]?.opening_balance_cents ?? 0;
+
+  // Opening balance is the selected account's, or the sum across all of them.
+  // Transfers are included everywhere here — the balance really does move.
+  const scoped =
+    state.accountId === null
+      ? state.accounts
+      : state.accounts.filter((a) => a.id === state.accountId);
+  const opening = scoped.reduce((s, a) => s + a.opening_balance_cents, 0);
 
   // Everything before this month, so the line starts where the month really starts.
-  const before = state.txns
+  const before = accountTxns()
     .filter((t) => monthKey(t) < key)
     .reduce((s, t) => s + t.amount_cents, 0);
 
