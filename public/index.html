@@ -1639,7 +1639,7 @@ $("account-switch").addEventListener("change", (e) => {
 /* ---------- summary ---------- */
 
 function renderSummary(key) {
-  const rows = monthTxns(key);
+  const rows = monthTxns(key).filter(counts);
   const spent = rows.filter((t) => !isIncome(t)).reduce((s, t) => s + Math.abs(t.amount_cents), 0);
   const income = rows.filter(isIncome).reduce((s, t) => s + t.amount_cents, 0);
   const net = income - spent;
