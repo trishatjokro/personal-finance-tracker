@@ -1663,7 +1663,7 @@ function renderSummary(key) {
     note.textContent = "First month on record";
   } else {
     const prevSpent = monthTxns(state.months[prevIdx])
-      .filter((t) => !isIncome(t))
+      .filter((t) => counts(t) && !isIncome(t))
       .reduce((s, t) => s + Math.abs(t.amount_cents), 0);
 
     if (prevSpent === 0) {
