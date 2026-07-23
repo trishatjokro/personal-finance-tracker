@@ -249,7 +249,7 @@ app.post("/api/import", async (c) => {
     }
   }
 
-  return c.json({ added, duplicates, skipped: parsed.skipped });
+  return c.json({ added, duplicates, skipped: parsed.skipped, transfers });
 });
 
 /* ---------- static ---------- */
