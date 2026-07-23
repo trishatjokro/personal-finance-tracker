@@ -76,6 +76,19 @@ if (!columns("accounts").includes("user_id")) {
   db.exec("ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE");
 }
 
+/* accounts.kind — checking | savings | credit. Purely for display and for
+   guessing which imported rows are card payments. */
+if (!columns("accounts").includes("kind")) {
+  db.exec("ALTER TABLE accounts ADD COLUMN kind TEXT NOT NULL DEFAULT 'checking'");
+}
+
+/* transactions.is_transfer — money moving between the user's own accounts.
+   Kept in the ledger but excluded from every spending/income total, so paying
+   a credit card from checking doesn't double-count as spending. */
+if (!columns("transactions").includes("is_transfer")) {
+  db.exec("ALTER TABLE transactions ADD COLUMN is_transfer INTEGER NOT NULL DEFAULT 0");
+}
+
 /* Sessions gained a user_id. Rebuilding just signs everyone out, which is
    harmless, and avoids a nullable column we'd have to defend against forever. */
 const sessionCols = columns("sessions");
