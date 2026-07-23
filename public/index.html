@@ -2029,7 +2029,7 @@ function renderRows() {
     del.setAttribute("aria-label", `Delete ${t.payee}`);
     del.addEventListener("click", () => removeTxn(t));
 
-    td5.append(edit, del);
+    td5.append(xfer, edit, del);
 
     tr.append(td1, td2, td3, td4, td5);
     body.appendChild(tr);
