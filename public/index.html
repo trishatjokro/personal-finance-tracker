@@ -1685,7 +1685,7 @@ function renderSummary(key) {
 function renderBreakdown(key, spent) {
   const totals = {};
   for (const t of monthTxns(key)) {
-    if (isIncome(t)) continue;
+    if (!counts(t) || isIncome(t)) continue;
     totals[t.category] = (totals[t.category] ?? 0) + Math.abs(t.amount_cents);
   }
 
