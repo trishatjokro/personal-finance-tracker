@@ -1975,26 +1975,45 @@ function renderRows() {
     }
 
     const td3 = document.createElement("td");
-    const catBtn = document.createElement("button");
-    catBtn.type = "button";
-    catBtn.className = "cat-btn" + (t.category === "Uncategorized" ? " is-unset" : "");
-    catBtn.setAttribute("aria-label", `Change category for ${t.payee}, currently ${t.category}`);
+    if (t.is_transfer) {
+      // A transfer isn't a spending category, so it shows a plain label rather
+      // than the category picker.
+      const badge = document.createElement("span");
+      badge.className = "transfer-badge";
+      badge.textContent = "⇄ Transfer";
+      td3.appendChild(badge);
+    } else {
+      const catBtn = document.createElement("button");
+      catBtn.type = "button";
+      catBtn.className = "cat-btn" + (t.category === "Uncategorized" ? " is-unset" : "");
+      catBtn.setAttribute("aria-label", `Change category for ${t.payee}, currently ${t.category}`);
 
-    const tag = document.createElement("span");
-    tag.className = "cat-tag";
-    const dot = document.createElement("span");
-    dot.className = "cat-dot" + (inc ? " is-income" : "");
-    tag.append(dot, document.createTextNode(t.category));
-    catBtn.appendChild(tag);
-    catBtn.addEventListener("click", () => openCategoryPicker(td3, t));
-    td3.appendChild(catBtn);
+      const tag = document.createElement("span");
+      tag.className = "cat-tag";
+      const dot = document.createElement("span");
+      dot.className = "cat-dot" + (inc ? " is-income" : "");
+      tag.append(dot, document.createTextNode(t.category));
+      catBtn.appendChild(tag);
+      catBtn.addEventListener("click", () => openCategoryPicker(td3, t));
+      td3.appendChild(catBtn);
+    }
 
     const td4 = document.createElement("td");
-    td4.className = "num" + (inc ? " is-income" : "");
+    td4.className = "num" + (t.is_transfer ? " is-transfer" : inc ? " is-income" : "");
     td4.textContent = (inc ? "+" : "−") + fmt(t.amount_cents);
 
     const td5 = document.createElement("td");
     td5.className = "act";
+
+    // Quick transfer toggle — the fast way to confirm or fix an auto-flagged
+    // import row without opening the whole editor.
+    const xfer = document.createElement("button");
+    xfer.className = "row-xfer" + (t.is_transfer ? " on" : "");
+    xfer.type = "button";
+    xfer.textContent = "⇄";
+    xfer.title = t.is_transfer ? "Counts as a transfer — click to make it spending" : "Mark as a transfer between your accounts";
+    xfer.setAttribute("aria-label", xfer.title);
+    xfer.addEventListener("click", () => toggleTransfer(t));
 
     const edit = document.createElement("button");
     edit.className = "row-edit";
