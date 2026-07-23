@@ -218,6 +218,24 @@ export function updateTransaction(userId, id, fields) {
   ).run(fields.date, fields.payee, fields.memo ?? "", fields.category, fields.amount_cents, id, userId);
 }
 
+/**
+ * Categories are free text on each transaction rather than rows in their own
+ * table, so renaming one means rewriting every transaction that carries it.
+ * Returns how many were changed.
+ */
+export function renameCategory(userId, from, to) {
+  const info = db
+    .prepare(
+      `UPDATE transactions
+          SET category = ?
+        WHERE category = ?
+          AND account_id IN (SELECT id FROM accounts WHERE user_id = ?)`
+    )
+    .run(to, from, userId);
+
+  return info.changes;
+}
+
 export function deleteTransaction(userId, id) {
   db.prepare(
     `DELETE FROM transactions
