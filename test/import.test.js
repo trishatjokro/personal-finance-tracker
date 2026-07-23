@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseAmountToCents, parseDate, parseBankCsv } from "../src/import.js";
+import { parseAmountToCents, parseDate, parseBankCsv, looksLikeTransfer } from "../src/import.js";
 
 /* Every case below is a shape some real bank export actually produces. */
 
@@ -110,4 +110,29 @@ test("unreadable rows are counted, not silently dropped", () => {
 test("a statement summary with no transaction table is rejected clearly", () => {
   const csv = "Description,,Summary Amt.\nBeginning balance,,\"$4,863.00\"\n";
   assert.throws(() => parseBankCsv(csv), /header row/i);
+});
+
+test("obvious internal transfers are flagged, ordinary spending is not", () => {
+  // These are money moving between the user's own accounts — not spending.
+  assert.ok(looksLikeTransfer("Online Banking transfer to SAV 9971"));
+  assert.ok(looksLikeTransfer("BANK OF AMERICA CREDIT CARD Bill Payment"));
+  assert.ok(looksLikeTransfer("Payment - Thank You"));
+  assert.ok(looksLikeTransfer("CRDCARD PYMT"));
+
+  // These are real purchases and must never be excluded from spending.
+  assert.ok(!looksLikeTransfer("TRADER JOES #221 SAN FRANCISCO CA"));
+  assert.ok(!looksLikeTransfer("UBER *ONE MEMB 07/13 PURCHASE"));
+  assert.ok(!looksLikeTransfer("WHOLE FOODS MARKET"));
+});
+
+test("import flags transfer rows via is_transfer", () => {
+  const csv = [
+    "Date,Description,Amount",
+    "07/01/2026,TRADER JOES,-45.00",
+    "07/15/2026,Online Banking transfer to SAV 1234,-500.00",
+  ].join("\n");
+
+  const { rows } = parseBankCsv(csv);
+  assert.equal(rows[0].is_transfer, false, "groceries are spending");
+  assert.equal(rows[1].is_transfer, true, "the transfer is flagged");
 });
