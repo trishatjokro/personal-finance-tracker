@@ -1280,7 +1280,16 @@
               <button type="button" data-dir="in" aria-pressed="false">Money in</button>
             </div>
           </div>
+          <div class="field" id="f-account-field">
+            <label class="field-label" for="f-account">Account</label>
+            <select class="field-select" id="f-account"></select>
+          </div>
         </div>
+
+        <label class="transfer-check">
+          <input type="checkbox" id="f-transfer" />
+          <span>This is a transfer between my own accounts (won't count as spending)</span>
+        </label>
 
         <p class="notice" id="entry-error" hidden></p>
 
