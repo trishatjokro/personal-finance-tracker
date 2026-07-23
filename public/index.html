@@ -682,6 +682,33 @@
     margin: 0 0 0.7rem;
   }
 
+  .search-scope {
+    margin: 0 0 0.5rem;
+    font-size: var(--step--1);
+    color: var(--accent);
+  }
+
+  .search-scope[hidden] { display: none; }
+
+  .cat-rename {
+    appearance: none;
+    background: none;
+    border: 0;
+    font: inherit;
+    font-size: var(--step--1);
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0 0.2rem;
+    opacity: 0;
+    border-radius: 5px;
+    transition: opacity 120ms, color 120ms;
+  }
+
+  .bar-row-wrap { position: relative; display: flex; align-items: center; gap: 0.25rem; }
+  .bar-row-wrap:hover .cat-rename, .cat-rename:focus-visible { opacity: 1; }
+  .cat-rename:hover { color: var(--accent); }
+  .cat-rename:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   .empty {
     padding: 2.25rem 0;
     text-align: center;
@@ -1217,7 +1244,9 @@
           </div>
           <div class="field">
             <label class="field-label" for="f-payee">Paid to / from</label>
-            <input class="field-input" id="f-payee" type="text" placeholder="Trader Joe's" required />
+            <input class="field-input" id="f-payee" type="text" list="payee-list"
+                   autocomplete="off" placeholder="Where did it go?" required />
+            <datalist id="payee-list"></datalist>
           </div>
           <div class="field">
             <label class="field-label" for="f-amount">Amount</label>
@@ -1250,12 +1279,14 @@
       </form>
 
       <div class="filters">
-        <input class="search-field" id="search" type="search" placeholder="Search payee or note" aria-label="Search transactions" />
+        <input class="search-field" id="search" type="search" placeholder="Search payee, note or amount" aria-label="Search all transactions" />
         <select class="select-field" id="cat-select" aria-label="Filter by category"></select>
         <button class="chip" data-filter="all" aria-pressed="true">All</button>
         <button class="chip" data-filter="expense" aria-pressed="false">Spending</button>
         <button class="chip" data-filter="income" aria-pressed="false">Income</button>
       </div>
+
+      <p class="search-scope" id="search-scope" hidden>Searching every month, not just <span id="scope-month"></span>.</p>
 
       <div class="ledger-scroll">
         <table>
@@ -1402,6 +1433,7 @@ const state = {
   sortDir: "desc",
   direction: "out",
   editingId: null,
+  lastDate: null,
 };
 
 /* ---------- helpers ---------- */
@@ -1635,7 +1667,45 @@ function renderBreakdown(key, spent) {
       render();
     });
 
-    wrap.appendChild(btn);
+    const row = document.createElement("div");
+    row.className = "bar-row-wrap";
+
+    const rename = document.createElement("button");
+    rename.className = "cat-rename";
+    rename.type = "button";
+    rename.textContent = "Rename";
+    rename.setAttribute("aria-label", `Rename the ${cat.name} category`);
+    rename.addEventListener("click", (e) => {
+      e.stopPropagation();
+      renameCategoryPrompt(cat.name);
+    });
+
+    row.append(btn, rename);
+    wrap.appendChild(row);
+  }
+}
+
+async function renameCategoryPrompt(from) {
+  const to = window.prompt(`Rename “${from}” to:`, from);
+  if (to === null) return;
+
+  const name = to.trim();
+  if (!name || name === from) return;
+
+  const existing = categoryNames().some((c) => c.toLowerCase() === name.toLowerCase());
+  if (existing && !confirm(`“${name}” already exists. Merge “${from}” into it?`)) return;
+
+  try {
+    const { changed } = await api("/api/categories/rename", {
+      method: "POST",
+      body: JSON.stringify({ from, to: name }),
+    });
+
+    if (state.category === from) state.category = name;
+    toast(`Renamed · ${changed} updated`);
+    await loadData();
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -1769,15 +1839,40 @@ function renderChart(key) {
 
 /* ---------- ledger ---------- */
 
+/**
+ * Does the query look like an amount? "87", "87.42", "$87" all count, so
+ * "what was that $87 charge" is answerable.
+ */
+function amountQuery(q) {
+  const m = q.replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(m)) return null;
+  return Math.round(Number(m) * 100);
+}
+
+function matches(t, q) {
+  if (`${t.payee} ${t.memo} ${t.category}`.toLowerCase().includes(q)) return true;
+
+  const cents = amountQuery(q);
+  if (cents === null) return false;
+
+  // Bare "87" should match $87.00 and $87.42 alike; "87.42" matches exactly.
+  const abs = Math.abs(t.amount_cents);
+  return q.includes(".") ? abs === cents : Math.floor(abs / 100) === Math.floor(cents / 100);
+}
+
 function visible() {
   const key = state.months[state.monthIndex];
   const q = state.query.trim().toLowerCase();
 
-  const list = monthTxns(key).filter((t) => {
+  // A search spans every month — otherwise "when did I last pay the dentist?"
+  // is unanswerable without clicking back through the year.
+  const pool = q ? state.txns : monthTxns(key);
+
+  const list = pool.filter((t) => {
     if (state.type === "income" && !isIncome(t)) return false;
     if (state.type === "expense" && isIncome(t)) return false;
     if (state.category && t.category !== state.category) return false;
-    if (q && !`${t.payee} ${t.memo}`.toLowerCase().includes(q)) return false;
+    if (q && !matches(t, q)) return false;
     return true;
   });
 
@@ -1856,7 +1951,22 @@ function renderRows() {
   const noneAtAll = state.txns.length === 0;
   $("welcome").hidden = !noneAtAll;
   $("empty").hidden = noneAtAll || list.length > 0;
-  $("txn-count").textContent = `${list.length} ${list.length === 1 ? "entry" : "entries"}`;
+
+  const searching = state.query.trim().length > 0;
+  const count = `${list.length} ${list.length === 1 ? "entry" : "entries"}`;
+
+  if (searching && list.length) {
+    // A filtered list without a total is half an answer.
+    const total = list.reduce((s, t) => s + t.amount_cents, 0);
+    const months = new Set(list.map(monthKey)).size;
+    $("txn-count").textContent =
+      `${count} across ${months} month${months === 1 ? "" : "s"} · ` +
+      `${total < 0 ? "−" : "+"}${fmt(total)}`;
+  } else {
+    $("txn-count").textContent = count;
+  }
+
+  $("search-scope").hidden = !searching;
 }
 
 async function removeTxn(t) {
@@ -1893,7 +2003,48 @@ function buildCategoryControls() {
     opt.value = n;
     list.appendChild(opt);
   }
+
+  // Payee suggestions, most recently used first.
+  const seen = new Set();
+  const payees = [];
+  for (const t of state.txns) {
+    if (!seen.has(t.payee)) { seen.add(t.payee); payees.push(t.payee); }
+  }
+
+  const plist = $("payee-list");
+  plist.textContent = "";
+  for (const p of payees.slice(0, 200)) {
+    const opt = document.createElement("option");
+    opt.value = p;
+    plist.appendChild(opt);
+  }
 }
+
+/** The category this payee usually gets, if there's a clear winner. */
+function usualCategory(payee) {
+  const counts = new Map();
+  for (const t of state.txns) {
+    if (t.payee.toLowerCase() !== payee.toLowerCase()) continue;
+    if (t.category === "Uncategorized") continue;
+    counts.set(t.category, (counts.get(t.category) ?? 0) + 1);
+  }
+
+  let best = null;
+  for (const [category, n] of counts) {
+    if (!best || n > best.n) best = { category, n };
+  }
+  return best?.category ?? null;
+}
+
+// Picking a known payee fills in the category it usually gets — never
+// overwriting something already typed.
+$("f-payee").addEventListener("change", () => {
+  const payee = $("f-payee").value.trim();
+  if (!payee || $("f-category").value.trim()) return;
+
+  const guess = usualCategory(payee);
+  if (guess) $("f-category").value = guess;
+});
 
 $("cat-select").addEventListener("change", (e) => {
   state.category = e.target.value || null;
@@ -1911,7 +2062,10 @@ function openEntry(txn = null) {
   $("entry-title").textContent = txn ? "Edit transaction" : "New transaction";
   $("toggle-entry").textContent = txn ? "+ Add transaction" : "Close";
 
-  $("f-date").value = txn ? txn.date : new Date().toISOString().slice(0, 10);
+  // Entering several transactions from the same past day is common, so the
+  // date persists between saves. Resetting it to today silently files the
+  // second and third entries under the wrong date.
+  $("f-date").value = txn ? txn.date : state.lastDate ?? new Date().toISOString().slice(0, 10);
   $("f-payee").value = txn ? txn.payee : "";
   $("f-amount").value = txn ? centsToDollars(txn.amount_cents) : "";
   $("f-category").value = txn && txn.category !== "Uncategorized" ? txn.category : "";
@@ -2075,9 +2229,19 @@ $("entry").addEventListener("submit", async (e) => {
     });
 
     const targetMonth = payload.date.slice(0, 7);
-    closeEntry();
-    toast(editing ? "Updated" : "Saved");
+    state.lastDate = payload.date;
 
+    if (editing) {
+      closeEntry();
+    } else {
+      // Stay open for the next one — the common case is entering a few at once.
+      $("entry").reset();
+      $("f-date").value = payload.date;
+      setDirection(state.direction);
+      $("f-payee").focus();
+    }
+
+    toast(editing ? "Updated" : "Saved");
     await loadData();
 
     // Follow the transaction if its date moved it into another month.
@@ -2328,6 +2492,7 @@ $("next").addEventListener("click", () => {
 function render() {
   const key = state.months[state.monthIndex];
   $("period").textContent = monthLabel(key);
+  $("scope-month").textContent = monthLabel(key);
   $("prev").disabled = state.monthIndex === 0;
   $("next").disabled = state.monthIndex === state.months.length - 1;
 
