@@ -1586,16 +1586,55 @@ async function loadData() {
   state.months = keys;
   state.monthIndex = Math.min(state.monthIndex || keys.length - 1, keys.length - 1);
 
-  const account = accounts[0];
-  $("account-meta").textContent = `${account.name} · ${account.currency}`;
-  $("s-name").value = account.name;
-  $("s-open").value = centsToDollars(account.opening_balance_cents);
+  // Drop a selected account that no longer exists (e.g. just deleted).
+  if (state.accountId !== null && !accounts.some((a) => a.id === state.accountId)) {
+    state.accountId = null;
+  }
 
+  buildAccountSwitcher();
+  buildAccountManager();
   buildCategoryControls();
   render();
 }
 
-const monthTxns = (key) => state.txns.filter((t) => monthKey(t) === key);
+/** Transactions in the selected account, or all of them when none is selected. */
+const accountTxns = () =>
+  state.accountId === null
+    ? state.txns
+    : state.txns.filter((t) => t.account_id === state.accountId);
+
+const monthTxns = (key) => accountTxns().filter((t) => monthKey(t) === key);
+
+/* Spending and income never count transfers between the user's own accounts.
+   The balance chart, by contrast, does — that money genuinely moved. */
+const counts = (t) => !t.is_transfer;
+
+function buildAccountSwitcher() {
+  const sel = $("account-switch");
+  sel.textContent = "";
+
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent =
+    state.accounts.length > 1 ? "All accounts" : state.accounts[0]?.name ?? "Account";
+  sel.appendChild(all);
+
+  if (state.accounts.length > 1) {
+    for (const a of state.accounts) {
+      const opt = document.createElement("option");
+      opt.value = String(a.id);
+      opt.textContent = a.name;
+      sel.appendChild(opt);
+    }
+  }
+
+  sel.value = state.accountId === null ? "" : String(state.accountId);
+}
+
+$("account-switch").addEventListener("change", (e) => {
+  state.accountId = e.target.value ? Number(e.target.value) : null;
+  render();
+});
 
 /* ---------- summary ---------- */
 
