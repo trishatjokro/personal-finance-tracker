@@ -8,6 +8,7 @@ import {
   deleteTransaction,
   listAccounts,
   listTransactions,
+  renameCategory,
   updateAccount,
   updateTransaction,
 } from "./db.js";
@@ -145,6 +146,22 @@ app.patch("/api/transactions/:id", async (c) => {
 app.delete("/api/transactions/:id", (c) => {
   deleteTransaction(c.get("user").id, Number(c.req.param("id")));
   return c.json({ ok: true });
+});
+
+app.post("/api/categories/rename", async (c) => {
+  const { from, to } = await c.req.json();
+
+  const oldName = String(from ?? "").trim();
+  const newName = String(to ?? "").trim();
+
+  if (!oldName) return c.json({ error: "Which category?" }, 400);
+  if (!newName) return c.json({ error: "Give it a new name." }, 400);
+  if (oldName === newName) return c.json({ changed: 0 });
+
+  // Renaming onto an existing name merges the two, which is usually what
+  // someone wants ("Car" and "Vehicles" should have been one thing).
+  const changed = renameCategory(c.get("user").id, oldName, newName);
+  return c.json({ changed });
 });
 
 function validate(body) {
