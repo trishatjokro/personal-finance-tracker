@@ -899,17 +899,36 @@
 
   .section-gap { margin-top: 2rem; }
 
-  details.settings { margin-top: 0.9rem; }
+  details.settings { margin-top: 1.25rem; }
 
   details.settings summary {
-    font-size: var(--step--1);
-    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--step-0);
+    font-weight: 500;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    padding: 0.45rem 1rem;
     cursor: pointer;
     list-style: none;
+    transition: background 140ms, border-color 140ms;
   }
 
   details.settings summary::-webkit-details-marker { display: none; }
-  details.settings summary:hover { color: var(--accent); }
+
+  /* A gear icon + a caret that rotates when the section is open. */
+  details.settings summary::before { content: "⚙"; font-size: 1em; }
+  details.settings summary::after {
+    content: "▾";
+    font-size: 0.7em;
+    transition: transform 160ms var(--ease);
+  }
+  details.settings[open] summary::after { transform: rotate(180deg); }
+
+  details.settings summary:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   details.settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .settings-body {
